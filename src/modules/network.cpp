@@ -252,8 +252,8 @@ void waybar::modules::Network::worker() {
       if (ifid_ > 0) {
         getInfo();
       }
-      dp.emit();
     }
+    dp.emit();
     thread_timer_.sleep_for(interval_);
   };
 #ifdef WANT_RFKILL
@@ -587,7 +587,20 @@ void waybar::modules::Network::clearIface() {
 
 int waybar::modules::Network::handleEvents(struct nl_msg* msg, void* data) {
   auto net = static_cast<waybar::modules::Network*>(data);
-  std::lock_guard<std::mutex> lock(net->mutex_);
+  bool need_emit = false;
+  struct EmitGuard {
+    waybar::modules::Network* net;
+    bool& need_emit;
+    std::unique_lock<std::mutex> lock;
+    ~EmitGuard() {
+      if (lock.owns_lock()) {
+        lock.unlock();
+      }
+      if (need_emit) {
+        net->dp.emit();
+      }
+    }
+  } guard{net, need_emit, std::unique_lock<std::mutex>(net->mutex_)};
   auto nh = nlmsg_hdr(msg);
   bool is_del_event = false;
 
@@ -617,7 +630,7 @@ int waybar::modules::Network::handleEvents(struct nl_msg* msg, void* data) {
         // it have been deleted, so start looking for a new default route.
         spdlog::debug("network: if{} down", net->ifid_);
         net->clearIface();
-        net->dp.emit();
+        need_emit = true;
         net->want_route_dump_ = true;
         net->askForStateDump();
         return NL_OK;
@@ -704,7 +717,7 @@ int waybar::modules::Network::handleEvents(struct nl_msg* msg, void* data) {
         spdlog::debug("network: interface {}/{} deleted", net->ifname_, net->ifid_);
 
         net->clearIface();
-        net->dp.emit();
+        need_emit = true;
       }
       break;
     }
@@ -794,7 +807,7 @@ int waybar::modules::Network::handleEvents(struct nl_msg* msg, void* data) {
                             inet_ntop(ifa->ifa_family, RTA_DATA(ifa_rta), ipaddr, sizeof(ipaddr)),
                             ifa->ifa_prefixlen);
             }
-            net->dp.emit();
+            need_emit = true;
             break;
         }
       }
@@ -915,7 +928,7 @@ int waybar::modules::Network::handleEvents(struct nl_msg* msg, void* data) {
                         priority);
 
           net->clearIface();
-          net->dp.emit();
+          need_emit = true;
           /* Ask for a dump of all routes in case another one is already
            * setup. If there's none, there'll be an event with new one
            * later. */
