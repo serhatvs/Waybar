@@ -399,6 +399,14 @@ void Workspaces::onSpecialWorkspaceActivated(std::string const& payload) {
 void Workspaces::onWorkspaceDestroyed(std::string const& payload) {
   const auto [workspaceAddress, workspaceName] = splitDoublePayload(payload);
   if (!isDoubleSpecial(workspaceName)) {
+    std::erase_if(m_workspacesToCreate, [&](const auto& entry) {
+      if (entry.first["persistent-config"].asBool()) {
+        return false;
+      }
+      auto identity = parseWorkspaceIdentity(entry.first);
+      return identity.has_value() && identity->matches(workspaceAddress);
+    });
+
     m_workspacesToRemove.push_back(workspaceAddress);
   }
 }
