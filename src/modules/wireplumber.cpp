@@ -481,6 +481,36 @@ void waybar::modules::Wireplumber::onObjectManagerInstalled(waybar::modules::Wir
   g_signal_emit_by_name(self->def_nodes_api_, "get-default-node", "Audio/Source",
                         &self->source_node_id_);
 
+  // Resolve actual active node names from the object manager rather than relying solely
+  // on configured node names, which can be stale if a device disconnected while offline.
+  if (isValidNodeId(self->node_id_)) {
+    g_autoptr(WpNode) node = static_cast<WpNode*>(
+        wp_object_manager_lookup(self->om_, WP_TYPE_NODE, WP_CONSTRAINT_TYPE_G_PROPERTY, "bound-id",
+                                 "=u", self->node_id_, nullptr));
+    if (node != nullptr) {
+      const gchar* effectiveNodeName =
+          wp_pipewire_object_get_property(WP_PIPEWIRE_OBJECT(node), "node.name");
+      if (effectiveNodeName != nullptr) {
+        g_free(self->default_node_name_);
+        self->default_node_name_ = g_strdup(effectiveNodeName);
+      }
+    }
+  }
+
+  if (isValidNodeId(self->source_node_id_)) {
+    g_autoptr(WpNode) sourceNode = static_cast<WpNode*>(
+        wp_object_manager_lookup(self->om_, WP_TYPE_NODE, WP_CONSTRAINT_TYPE_G_PROPERTY, "bound-id",
+                                 "=u", self->source_node_id_, nullptr));
+    if (sourceNode != nullptr) {
+      const gchar* defaultSourceName =
+          wp_pipewire_object_get_property(WP_PIPEWIRE_OBJECT(sourceNode), "node.name");
+      if (defaultSourceName != nullptr) {
+        g_free(self->default_source_name_);
+        self->default_source_name_ = g_strdup(defaultSourceName);
+      }
+    }
+  }
+
   if (self->default_node_name_ != nullptr) {
     spdlog::debug(
         "[{}]: (onObjectManagerInstalled: {}) - default configured node name: {} and id: {}",
